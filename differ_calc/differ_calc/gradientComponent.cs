@@ -24,6 +24,10 @@ namespace differ_calc
         {
         }
         protected static string log_history = "";
+        protected static List<Point3d> last_points = new List<Point3d>();
+        protected static List<List<Point3d>> gradient = new List<List<Point3d>>();
+        protected static int iteration_num = 0;
+        protected static decimal eps = new decimal(0.001);
         /// <summary>
         /// Registers all the input parameters for this component.
         /// </summary>
@@ -63,7 +67,7 @@ namespace differ_calc
             }
 
             GH_RhinoScriptInterface GH = new GH_RhinoScriptInterface();
-            GH_Document GHdoc = Grasshopper.Instances.ActiveCanvas.Document; //TODO Check if this has to be updated when a new document is opened
+            GH_Document GHdoc = Grasshopper.Instances.ActiveCanvas.Document;
 
 
             if (!GH.IsEditorLoaded() || GHdoc == null)
@@ -71,15 +75,11 @@ namespace differ_calc
                 return;
             }
 
-            List<Point3d> vertices = new List<Point3d>();
-            foreach (Point3d vertex in mesh.Vertices) // import vertices
-            {
-                vertices.Add(vertex);
-            }
-            vertices = vertices.Union(vertices).ToList(); // Dedpulicate
+            List<Point3d> vertices = GetVertices(mesh);
+
             foreach (Point3d vertex in vertices)
             {
-                log += vertex.ToString();
+                log += vertex.ToString() + '\n';
             }
 
             List<Grasshopper.Kernel.Special.GH_NumberSlider> sliders = new List<Grasshopper.Kernel.Special.GH_NumberSlider>();
@@ -96,36 +96,33 @@ namespace differ_calc
                 }
             }
 
-            log += "*****************";
+            log += "******** Last saved points: *********" + '\n';
             for (int i = 0; i < vals.Count; i++)
             {
                 UpdateSlider(names[i], vals[i] + 3);
             }
 
-            /*
-            for(int i = 0;i < vertices.Count;i++){
-              this.last_vert[i] = vertices[i];
-            }
-        */
-            //
             List<Point3d> new_vert = new List<Point3d>();
             foreach (Point3d vertex in mesh.Vertices) // import vertices
             {
                 new_vert.Add(vertex);
             }
             new_vert = new_vert.Union(new_vert).ToList(); // Dedpulicate
-            foreach (Point3d vertex in new_vert)
+            foreach (Point3d vertex in last_points)
             {
-                log += vertex.ToString();
+                log += vertex.ToString() + '\n';
             }
+
+            
             for (int i = 0; i < vals.Count; i++)
             {
                 UpdateSlider(names[i], vals[i]);
             }
-
+            
             // sliders - the original sliders and their values
             // vertices - the original vertices and their values
             log_history = log;
+            last_points = vertices;
             DA.SetData(0, log);
         }
         protected void UpdateSlider(string name, decimal val)
@@ -146,6 +143,19 @@ namespace differ_calc
                 }
             }
         }
+        protected List<Point3d> GetVertices(Mesh mesh)
+        {
+            List<Point3d> vertices = new List<Point3d>();
+            // import vertices
+            for(int i = 0; i < vertices.Count; i++)
+            {
+                vertices.Add(vertices[i]);
+            }
+            // Deduplicate
+            vertices = vertices.Union(vertices).ToList();
+            return vertices;
+        }
+
         /// <summary>
         /// Provides an Icon for every component that will be visible in the User Interface.
         /// Icons need to be 24x24 pixels.
