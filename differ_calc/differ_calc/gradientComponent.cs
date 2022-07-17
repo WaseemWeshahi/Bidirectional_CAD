@@ -25,9 +25,12 @@ namespace differ_calc
         }
         protected static string log_history = "";
         protected static List<Point3d> last_points = new List<Point3d>();
-        protected static List<List<Point3d>> gradient = new List<List<Point3d>>();
+        protected static List<List<Point3d>> gradient = new List<List<Point3d>>(); // #S x #V
         protected static int iteration_num = 0;
         protected static decimal eps = new decimal(0.001);
+        protected static bool in_eps_mode = false;
+        protected static List<string> names = new List<string>();
+        protected static List<decimal> vals = new List<decimal>();
         /// <summary>
         /// Registers all the input parameters for this component.
         /// </summary>
@@ -43,7 +46,7 @@ namespace differ_calc
         /// </summary>
         protected override void RegisterOutputParams(GH_Component.GH_OutputParamManager pManager)
         {
-            pManager.AddTextParameter("Result", "result", "Reversed string", GH_ParamAccess.item);
+            pManager.AddTextParameter("Result", "result", "Gradient of canvas sliders", GH_ParamAccess.item);
         }
 
         /// <summary>
@@ -55,20 +58,18 @@ namespace differ_calc
         {
             Mesh mesh = new Mesh();
             bool toggle = false;
-
             string log = "";
             if (!DA.GetData(0, ref mesh)) return;
             if (!DA.GetData(1, ref toggle)) return;
 
-            if (!toggle)
+            GH_RhinoScriptInterface GH = new GH_RhinoScriptInterface();
+            GH_Document GHdoc = Grasshopper.Instances.ActiveCanvas.Document;
+
+            if (!toggle || !in_eps_mode)
             {
                 DA.SetData(0, log_history);
                 return;
             }
-
-            GH_RhinoScriptInterface GH = new GH_RhinoScriptInterface();
-            GH_Document GHdoc = Grasshopper.Instances.ActiveCanvas.Document;
-
 
             if (!GH.IsEditorLoaded() || GHdoc == null)
             {
@@ -82,47 +83,71 @@ namespace differ_calc
                 log += vertex.ToString() + '\n';
             }
 
-            List<Grasshopper.Kernel.Special.GH_NumberSlider> sliders = new List<Grasshopper.Kernel.Special.GH_NumberSlider>();
-            List<string> names = new List<string>();
-            List<decimal> vals = new List<decimal>();
-
-            foreach (var element in GHdoc.Objects)
+            // if we have altered the sliders in previous iteration, we should calculate
+            // the difference in vertex positions
+            if (in_eps_mode)
             {
-                if (element.GetType().ToString() == "Grasshopper.Kernel.Special.GH_NumberSlider")
+                var diff = new List<Point3d>();
+                for (int i=0; i < vertices.Count; i++)
                 {
-                    var slider = element as Grasshopper.Kernel.Special.GH_NumberSlider;
-                    names.Add(slider.NickName);
-                    vals.Add(slider.CurrentValue);
+                    Point3d dd = (Point3d)(vertices[i] - last_points[i]);
+                    dd = Point3d.Divide(dd, (double)eps);
+                    diff.Add(dd);
+                } 
+                gradient.Add(diff);
+                iteration_num--;
+            }
+
+            if (!in_eps_mode)
+            {
+                foreach (var element in GHdoc.Objects)
+                {
+                    if (element.GetType().ToString() == "Grasshopper.Kernel.Special.GH_NumberSlider")
+                    {
+                        var slider = element as Grasshopper.Kernel.Special.GH_NumberSlider;
+                        names.Add(slider.NickName);
+                        vals.Add(slider.CurrentValue);
+                    }
                 }
+                in_eps_mode = true;
+                iteration_num = names.Count; // maybe +-1
+                log_history = log;
+                last_points = vertices;
             }
 
-            log += "******** Last saved points: *********" + '\n';
-            for (int i = 0; i < vals.Count; i++)
+            if (iteration_num > 0)
             {
-                UpdateSlider(names[i], vals[i] + 3);
+                int i = names.Count - iteration_num;
+                if (i > 0)
+                    UpdateSlider(names[i - 1], vals[i - 1]); // Reset previous slider
+                UpdateSlider(names[i], vals[i] + eps);
+
+            }
+            else if (iteration_num == 0)
+            {
+                for (int i = 0; i < names.Count; i++)
+                {
+                    UpdateSlider(names[i], vals[i]);
+                }
+                // Print Result!
+                for (int s = 0; s < names.Count; s++)
+                {
+                    for (int v = 0; v < vertices.Count; v++)
+                    {
+                        log += gradient[s][v].ToString() + '\t';
+                    }
+                    log += '\n';
+                }
+                in_eps_mode = false;
+                last_points = new List<Point3d>();
+                gradient = new List<List<Point3d>>(); // #S x #V
+                names = new List<string>();
+                vals = new List<decimal>();
             }
 
-            List<Point3d> new_vert = new List<Point3d>();
-            foreach (Point3d vertex in mesh.Vertices) // import vertices
-            {
-                new_vert.Add(vertex);
-            }
-            new_vert = new_vert.Union(new_vert).ToList(); // Dedpulicate
-            foreach (Point3d vertex in last_points)
-            {
-                log += vertex.ToString() + '\n';
-            }
-
-            
-            for (int i = 0; i < vals.Count; i++)
-            {
-                UpdateSlider(names[i], vals[i]);
-            }
-            
             // sliders - the original sliders and their values
             // vertices - the original vertices and their values
-            log_history = log;
-            last_points = vertices;
+
             DA.SetData(0, log);
         }
         protected void UpdateSlider(string name, decimal val)
@@ -147,9 +172,9 @@ namespace differ_calc
         {
             List<Point3d> vertices = new List<Point3d>();
             // import vertices
-            for(int i = 0; i < vertices.Count; i++)
+            for(int i = 0; i < mesh.Vertices.Count; i++)
             {
-                vertices.Add(vertices[i]);
+                vertices.Add(mesh.Vertices[i]);
             }
             // Deduplicate
             vertices = vertices.Union(vertices).ToList();
