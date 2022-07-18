@@ -65,7 +65,7 @@ namespace differ_calc
             GH_RhinoScriptInterface GH = new GH_RhinoScriptInterface();
             GH_Document GHdoc = Grasshopper.Instances.ActiveCanvas.Document;
 
-            if (!toggle || !in_eps_mode)
+            if (!(toggle ^ in_eps_mode))
             {
                 DA.SetData(0, log_history);
                 return;
@@ -78,11 +78,6 @@ namespace differ_calc
 
             List<Point3d> vertices = GetVertices(mesh);
 
-            foreach (Point3d vertex in vertices)
-            {
-                log += vertex.ToString() + '\n';
-            }
-
             // if we have altered the sliders in previous iteration, we should calculate
             // the difference in vertex positions
             if (in_eps_mode)
@@ -92,10 +87,18 @@ namespace differ_calc
                 {
                     Point3d dd = (Point3d)(vertices[i] - last_points[i]);
                     dd = Point3d.Divide(dd, (double)eps);
+                    dd.X = Math.Round(dd.X, 2);
+                    dd.Y = Math.Round(dd.Y, 2);
+                    dd.Z = Math.Round(dd.Z, 2);
+
                     diff.Add(dd);
                 } 
                 gradient.Add(diff);
                 iteration_num--;
+                //GHdoc.ScheduleSolution(10, ScheduleCallback); // Schedule another solution
+                if (GHdoc != null)
+                    this.ExpireSolution(true);
+                // Set "toggle" to a Persistent data !
             }
 
             if (!in_eps_mode)
@@ -134,7 +137,7 @@ namespace differ_calc
                 {
                     for (int v = 0; v < vertices.Count; v++)
                     {
-                        log += gradient[s][v].ToString() + '\t';
+                        log += '(' + gradient[s][v].ToString() + ')' + '\t';
                     }
                     log += '\n';
                 }
@@ -143,6 +146,8 @@ namespace differ_calc
                 gradient = new List<List<Point3d>>(); // #S x #V
                 names = new List<string>();
                 vals = new List<decimal>();
+                log_history = log;
+                // Turn off the toggle persistent data
             }
 
             // sliders - the original sliders and their values
@@ -180,7 +185,11 @@ namespace differ_calc
             vertices = vertices.Union(vertices).ToList();
             return vertices;
         }
-
+        private void ScheduleCallback(GH_Document document)
+        {
+            //this.Component.ExpireSolution(false);
+            return;
+        }
         /// <summary>
         /// Provides an Icon for every component that will be visible in the User Interface.
         /// Icons need to be 24x24 pixels.
