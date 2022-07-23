@@ -38,7 +38,7 @@ namespace differ_calc
         {
             pManager.AddGenericParameter("Mesh", "mesh", "Target mesh", GH_ParamAccess.item);
             pManager.AddBooleanParameter("Toggle", "toggle", "Toggle button", GH_ParamAccess.item);
-
+            pManager.AddBooleanParameter("Reset", "reset", "Panic button", GH_ParamAccess.item);
         }
 
         /// <summary>
@@ -58,13 +58,19 @@ namespace differ_calc
         {
             Mesh mesh = new Mesh();
             bool toggle = false;
+            bool reset = false;
             string log = "";
             if (!DA.GetData(0, ref mesh)) return;
             if (!DA.GetData(1, ref toggle)) return;
+            if (!DA.GetData(2, ref reset)) return;
 
             GH_RhinoScriptInterface GH = new GH_RhinoScriptInterface();
             GH_Document GHdoc = Grasshopper.Instances.ActiveCanvas.Document;
 
+            if (reset)
+            {
+                return;
+            }
             if (!(toggle ^ in_eps_mode))
             {
                 DA.SetData(0, log_history);
@@ -87,25 +93,23 @@ namespace differ_calc
                 {
                     Point3d dd = (Point3d)(vertices[i] - last_points[i]);
                     dd = Point3d.Divide(dd, (double)eps);
-                    dd.X = Math.Round(dd.X, 2);
-                    dd.Y = Math.Round(dd.Y, 2);
-                    dd.Z = Math.Round(dd.Z, 2);
+                    dd.X = Math.Round(dd.X, 3);
+                    dd.Y = Math.Round(dd.Y, 3);
+                    dd.Z = Math.Round(dd.Z, 3);
 
                     diff.Add(dd);
                 } 
                 gradient.Add(diff);
                 iteration_num--;
-                //GHdoc.ScheduleSolution(10, ScheduleCallback); // Schedule another solution
                 if (GHdoc != null)
                     this.ExpireSolution(true);
-                // Set "toggle" to a Persistent data !
             }
 
             if (!in_eps_mode)
             {
                 foreach (var element in GHdoc.Objects)
                 {
-                    if (element.GetType().ToString() == "Grasshopper.Kernel.Special.GH_NumberSlider")
+                    if (IsSlider(element))
                     {
                         var slider = element as Grasshopper.Kernel.Special.GH_NumberSlider;
                         names.Add(slider.NickName);
@@ -113,7 +117,7 @@ namespace differ_calc
                     }
                 }
                 in_eps_mode = true;
-                iteration_num = names.Count; // maybe +-1
+                iteration_num = names.Count;
                 log_history = log;
                 last_points = vertices;
             }
@@ -132,12 +136,19 @@ namespace differ_calc
                 {
                     UpdateSlider(names[i], vals[i]);
                 }
+                log += ". . . .";
+                foreach (Point3d vertex in last_points)
+                {
+                    log += '(' + vertex.ToString() + ')' + "\t\t\t";
+                }
+                log += '\n';
                 // Print Result!
                 for (int s = 0; s < names.Count; s++)
                 {
+                    log += names[s] + " : ";
                     for (int v = 0; v < vertices.Count; v++)
                     {
-                        log += '(' + gradient[s][v].ToString() + ')' + '\t';
+                        log += '(' + gradient[s][v].ToString() + ')' + "\t\t\t";
                     }
                     log += '\n';
                 }
@@ -184,6 +195,22 @@ namespace differ_calc
             // Deduplicate
             vertices = vertices.Union(vertices).ToList();
             return vertices;
+        }
+        protected List<Point3d> GetVerticesV(Mesh mesh)
+        {
+            List<Point3d> vertices = new List<Point3d>();
+            // import vertices
+            for (int i = 0; i < mesh.Vertices.Count; i++)
+            {
+                vertices.Add(mesh.Vertices[i]);
+            }
+            // Deduplicate
+            vertices = vertices.Union(vertices).ToList();
+            return vertices;
+        }
+        protected bool IsSlider(IGH_DocumentObject obj)
+        {
+            return obj.GetType().ToString() == "Grasshopper.Kernel.Special.GH_NumberSlider";
         }
         private void ScheduleCallback(GH_Document document)
         {
