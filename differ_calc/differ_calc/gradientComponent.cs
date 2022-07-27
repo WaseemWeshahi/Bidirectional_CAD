@@ -5,6 +5,8 @@ using System;
 using System.Collections.Generic;
 using Grasshopper.Plugin;
 using System.Linq;
+using System;
+using System.IO;
 
 namespace differ_calc
 {
@@ -24,13 +26,17 @@ namespace differ_calc
         {
         }
         protected static string log_history = "";
+        protected static string last_vert_log = "";
         protected static List<Point3d> last_points = new List<Point3d>();
         protected static List<List<Point3d>> gradient = new List<List<Point3d>>(); // #S x #V
         protected static int iteration_num = 0;
         protected static decimal eps = new decimal(0.001);
         protected static bool in_eps_mode = false;
         protected static List<string> names = new List<string>();
+        protected static List<string> Names = new List<string>();
         protected static List<decimal> vals = new List<decimal>();
+        protected static List<Grasshopper.Kernel.Special.GH_NumberSlider> sliders = new List<Grasshopper.Kernel.Special.GH_NumberSlider>();
+        
         /// <summary>
         /// Registers all the input parameters for this component.
         /// </summary>
@@ -47,6 +53,8 @@ namespace differ_calc
         protected override void RegisterOutputParams(GH_Component.GH_OutputParamManager pManager)
         {
             pManager.AddTextParameter("Result", "result", "Gradient of canvas sliders", GH_ParamAccess.item);
+            pManager.AddTextParameter("Vertices", "verts", "Vertices of mesh", GH_ParamAccess.item);
+
         }
 
         /// <summary>
@@ -69,11 +77,13 @@ namespace differ_calc
 
             if (reset)
             {
+                in_eps_mode = false;
                 return;
             }
             if (!(toggle ^ in_eps_mode))
             {
                 DA.SetData(0, log_history);
+                DA.SetData(1, last_vert_log);
                 return;
             }
 
@@ -93,9 +103,9 @@ namespace differ_calc
                 {
                     Point3d dd = (Point3d)(vertices[i] - last_points[i]);
                     dd = Point3d.Divide(dd, (double)eps);
-                    dd.X = Math.Round(dd.X, 3);
-                    dd.Y = Math.Round(dd.Y, 3);
-                    dd.Z = Math.Round(dd.Z, 3);
+                    dd.X = Math.Round(dd.X, 2);
+                    dd.Y = Math.Round(dd.Y, 2);
+                    dd.Z = Math.Round(dd.Z, 2);
 
                     diff.Add(dd);
                 } 
@@ -113,7 +123,9 @@ namespace differ_calc
                     {
                         var slider = element as Grasshopper.Kernel.Special.GH_NumberSlider;
                         names.Add(slider.NickName);
+                        Names.Add(slider.Name);
                         vals.Add(slider.CurrentValue);
+                        sliders.Add(slider);
                     }
                 }
                 in_eps_mode = true;
@@ -128,20 +140,22 @@ namespace differ_calc
                 if (i > 0)
                     UpdateSlider(names[i - 1], vals[i - 1]); // Reset previous slider
                 UpdateSlider(names[i], vals[i] + eps);
+                sliders[i].ExpireSolution(true);
 
             }
             else if (iteration_num == 0)
             {
+                // Reset sliders
                 for (int i = 0; i < names.Count; i++)
                 {
                     UpdateSlider(names[i], vals[i]);
                 }
-                log += ". . . .";
+                last_vert_log = "";
                 foreach (Point3d vertex in last_points)
                 {
-                    log += '(' + vertex.ToString() + ')' + "\t\t\t";
+                    last_vert_log += '(' + vertex.ToString() + ')' + "\n";
                 }
-                log += '\n';
+                log = "";
                 // Print Result!
                 for (int s = 0; s < names.Count; s++)
                 {
@@ -154,17 +168,18 @@ namespace differ_calc
                 }
                 in_eps_mode = false;
                 last_points = new List<Point3d>();
-                gradient = new List<List<Point3d>>(); // #S x #V
+                gradient = new List<List<Point3d>>(); // #S x (#Vx3)
                 names = new List<string>();
                 vals = new List<decimal>();
+                sliders = new List<Grasshopper.Kernel.Special.GH_NumberSlider>();
                 log_history = log;
-                // Turn off the toggle persistent data
             }
 
             // sliders - the original sliders and their values
-            // vertices - the original vertices and their values
-
+            // last_points - the original vertices and their values
+            ExportResult("C:/Users/waemw/Desktop/University/Thesis/Bidirectional_CAD/tests/logs/result.txt", log);
             DA.SetData(0, log);
+            DA.SetData(1, last_vert_log);
         }
         protected void UpdateSlider(string name, decimal val)
         {
@@ -210,12 +225,27 @@ namespace differ_calc
         }
         protected bool IsSlider(IGH_DocumentObject obj)
         {
-            return obj.GetType().ToString() == "Grasshopper.Kernel.Special.GH_NumberSlider";
+            if (obj.GetType().ToString() == "Grasshopper.Kernel.Special.GH_NumberSlider")
+            {
+                // Filter out sliders here
+                var slider = obj as Grasshopper.Kernel.Special.GH_NumberSlider;
+                return slider.NickName != "";
+            }
+            return false;
         }
         private void ScheduleCallback(GH_Document document)
         {
             //this.Component.ExpireSolution(false);
             return;
+        }
+        protected void ExportResult(string path, string data)
+        {
+            StreamWriter file = new StreamWriter(path);
+            //data.Replace("\t\t\t", "\n");
+            file.Write(data);
+            file.Close();
+            return;
+
         }
         /// <summary>
         /// Provides an Icon for every component that will be visible in the User Interface.
